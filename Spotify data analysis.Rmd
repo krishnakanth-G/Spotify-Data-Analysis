@@ -1,0 +1,574 @@
+---
+title: "MDSC-206-Project"
+author: "krishnakanth-20233"
+date: "3/31/2021"
+output: word_document
+editor_options:
+  chunk_output_type: console
+---
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = TRUE, echo = FALSE)
+```
+
+# packages required
+```{r}
+library(heplots)
+library(plyr)
+library(e1071)
+library(tidyverse)
+library(caret)
+library(gmodels)
+library(gridExtra)
+library(factoextra)
+library(corrplot)
+library(nortest)
+library(MASS)
+library(lattice)
+library(broom)
+library(cluster)
+library(randomForest)
+```
+
+# Data setup
+```{r}
+setwd("C:/Users/gunta/Desktop/studies/SEM2/MDSC-206/Mini project1")
+data_excel <- read.csv("Spotify_data.csv")
+set.seed(12)
+data <- data_excel[sample(nrow(data_excel), 7000),]
+
+dim(data)
+head(data)
+```
+
+# Data cleaning
+
+## checking for duplicate rows
+```{r}
+data[duplicated(data$names), ]
+```
+
+## checking for Missing values
+```{r}
+sum(is.na(data))
+```
+
+## Adding new variable using existing variables
+```{r}
+data <- data %>% mutate(duration_min = duration_ms/60000)
+```
+
+## Removing unnecessary columns
+```{r}
+summary(data)
+data <- data[,-c(4,7,15)]
+dim(data)
+head(data)
+```
+
+## checking datatypes
+```{r}
+glimpse(data)
+```
+
+## conversion to factors
+```{r}
+data$mode <- as.factor(data$mode)
+data$key <- as.factor(data$key)
+data$explicit <- as.factor(data$explicit)
+glimpse(data)
+```
+
+# Data splitting
+```{r}
+set.seed(8)
+dim(data)
+index = sample(nrow(data), 5000)
+train = data[index, ]
+test = data[-index, ]
+
+dim(train)
+dim(test)
+```
+
+# Exploratory data analysis
+## correlation plot
+```{r}
+corrplot(cor(train[,-c(2,5,7,10,11)]),method = "number")
+```
+
+## Trends over last decade
+```{r}
+trends_plot <- function(a){
+trend_change <- train %>% filter(year>2010) %>% group_by(year) %>% summarize_at(vars(all_of(a)), funs(Average = mean))
+plot<- ggplot(data = trend_change, aes(x = year, y = Average)) +
+  geom_line(color = "dodgerblue3", size = 1) +
+  scale_x_continuous(breaks=seq(2011, 2020, 1))+
+  scale_y_continuous(name=paste("",a,sep=""))
+return(plot)
+}
+grid.arrange(trends_plot('danceability'),trends_plot('speechiness'),trends_plot('energy'),trends_plot('loudness'),trends_plot('liveness'),trends_plot('instrumentalness'),trends_plot('popularity'),trends_plot('acousticness'),trends_plot('tempo'),trends_plot('valence'),trends_plot('duration_min'),nrow=4)
+```
+
+## Histograms 
+```{r}
+h1<-ggplot(train,aes(acousticness))+geom_histogram(bins=40,col="red",aes(y =..density..,fill=..count..)) +
+       scale_fill_gradient("Count", low="aquamarine2", high="coral2")+
+       geom_density()+xlab("Acousticness")
+h2<-ggplot(train,aes(danceability))+geom_histogram(bins=40,col="red",aes(y =..density..,fill=..count..)) +
+       scale_fill_gradient("Count", low="aquamarine2", high="coral2")+
+       geom_density()+xlab("Danceability")
+h3<-ggplot(train,aes(energy))+geom_histogram(bins=40,col="red",aes(y =..density..,fill=..count..)) +
+       scale_fill_gradient("Count", low="aquamarine2", high="coral2")+
+       geom_density()+xlab("Enegry")
+h4<-ggplot(train,aes(loudness))+geom_histogram(bins=20,col="red",aes(y =..density..,fill=..count..)) +
+       scale_fill_gradient("Count", low="aquamarine2", high="coral2")+
+       geom_density()+xlab("loudness")
+h5<-ggplot(train,aes(liveness))+geom_histogram(bins=40,col="red",aes(y =..density..,fill=..count..)) +
+       scale_fill_gradient("Count", low="aquamarine2", high="coral2")+
+       geom_density()+xlab("liveness")
+h6<-ggplot(train,aes(speechiness))+geom_histogram(bins=40,col="red",aes(y=..density..,fill=..count..)) +scale_fill_gradient("Count", low="aquamarine2", high="coral2")+
+       geom_density()+xlab("speechiness")
+h7<-ggplot(train,aes(instrumentalness))+geom_histogram(bins=40,col="red",aes(y =..density..,fill=..count..)) +
+       scale_fill_gradient("Count", low="aquamarine2", high="coral2")+
+       geom_density()+xlab("instrumentalness")
+h8<-ggplot(train,aes(tempo))+geom_histogram(bins=40,aes(y=..density..,fill=..count..)) +
+       scale_fill_gradient("Count", low="aquamarine2", high="coral2")+
+       geom_density()+xlab("Tempo")
+h9<-ggplot(train,aes(valence))+geom_histogram(bins=40,aes(y=..density..,fill=..count..)) +
+       scale_fill_gradient("Count", low="aquamarine2", high="coral2")+
+       geom_density()+xlab("Valence")
+h10<-ggplot(train,aes(duration_min))+geom_histogram(bins=40,aes(y=..density..,fill=..count..)) +
+       scale_fill_gradient("Count", low="aquamarine2", high="coral2")+
+       geom_density()+xlab("Duration of song")
+h11<-ggplot(train,aes(popularity))+geom_histogram(bins=40,aes(y=..density..,fill=..count..)) +
+       scale_fill_gradient("Count", low="aquamarine2", high="coral2")+
+       geom_density()+xlab("Popularity of song")
+grid.arrange(h1,h2,h3,h4,h5,h6,h7,h8,h9,h10,h11,nrow=4,top="Histograms")
+```
+
+## shapiro test
+```{r}
+sp<-Map(function(x)cbind(shapiro.test(x)$statistic,shapiro.test(x)$p.value),train[,-c(2,5,7,10,11)])
+output<-ldply(sp)
+names(output)<-c("var","W","p.value")
+flag<-0
+for(i in 1:12)
+{
+  if(output[i,]$p.value > 0.05)
+  {
+    if(flag == 0)
+      print("with 95 % confidence interval Normal varibles:")
+    print(output[i,]$var)
+    flag <- flag+1
+  }
+}
+if(flag == 0)
+  print("No variable is Normal in the data with 5% signifinace level")
+```
+
+## Frequency plots    
+```{r}
+f1 <- ggplot(train, mapping = aes(x = acousticness, colour = explicit )) +
+  geom_freqpoly(binwidth = 0.1)
+f2 <- ggplot(train, mapping = aes(x = danceability , colour = explicit )) +
+  geom_freqpoly(binwidth = 0.1)
+f3 <- ggplot(train, mapping = aes(x = energy, colour = explicit )) +
+  geom_freqpoly(binwidth = 0.1)
+f4 <- ggplot(train, mapping = aes(x = instrumentalness, colour = explicit )) +
+  geom_freqpoly(binwidth = 0.1)
+f5 <- ggplot(train, mapping = aes(x = liveness, colour = explicit )) +
+  geom_freqpoly(binwidth = 0.1)
+f6 <- ggplot(train, mapping = aes(x = loudness, colour = explicit )) +
+  geom_freqpoly(binwidth = 0.1)
+f7 <- ggplot(train, mapping = aes(x = popularity, colour = explicit )) +
+  geom_freqpoly(binwidth = 0.1)
+f8 <- ggplot(train, mapping = aes(x = speechiness, colour = explicit )) +
+  geom_freqpoly(binwidth = 0.1)
+f9 <- ggplot(train, mapping = aes(x = tempo, colour = explicit )) +
+  geom_freqpoly(binwidth = 0.1)
+f10 <- ggplot(train, mapping = aes(x = valence, colour = explicit )) +
+  geom_freqpoly(binwidth = 0.1)
+f11 <- ggplot(train, mapping = aes(x = year, colour = explicit )) +
+  geom_freqpoly(binwidth = 0.1)
+f12 <- ggplot(train, mapping = aes(x = duration_min, colour = explicit )) +
+  geom_freqpoly(binwidth = 0.1)
+grid.arrange(f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,top="frequency plots",ncol=3)
+```
+
+## Bar plots
+```{r}
+b1<- ggplot(train, aes(mode)) + geom_bar(aes(fill=mode))
+b2<- ggplot(train, aes(key)) + geom_bar(aes(fill=key))
+b3<- ggplot(train, aes(explicit)) + geom_bar(aes(fill=explicit))
+grid.arrange(b1,b2,b3,top="Barplots")
+```
+
+## count plots
+```{r}
+c1<- ggplot(train) +geom_count(mapping = aes(x =mode, y = key))
+c2<- ggplot(train) +geom_count(mapping = aes(x =mode, y = explicit))
+c3<- ggplot(train) +geom_count(mapping = aes(x =explicit, y = key))
+grid.arrange(c1,c2,c3,top="count plots",ncol=2)
+```
+
+## crosstables
+```{r}
+CrossTable(train$mode,train$explicit)
+```
+
+## Scatter plots
+```{r}
+s1 <- ggplot(train,aes(acousticness,energy))+geom_point(col="navyblue")
+s2 <- ggplot(train,aes(acousticness,loudness))+geom_point(col="navyblue")
+s3 <- ggplot(train,aes(acousticness,year))+geom_point(col="navyblue")
+s4 <- ggplot(train,aes(energy,loudness))+geom_point(col="navyblue")
+s5 <- ggplot(train,aes(energy,year))+geom_point(col="navyblue")
+s6 <- ggplot(train,aes(popularity,year))+geom_point(col="navyblue")
+grid.arrange(s1,s2,s3,s4,s5,s6,top="Scatter plots")
+```
+
+## boxplots
+```{r}
+b1 <- ggplot(train,aes(acousticness))+geom_boxplot()
+b2 <- ggplot(train,aes(danceability))+geom_boxplot()
+b3 <- ggplot(train,aes(energy))+geom_boxplot()
+b4 <- ggplot(train,aes(instrumentalness))+geom_boxplot()
+b5 <- ggplot(train,aes(duration_min))+geom_boxplot()
+b6 <- ggplot(train,aes(liveness))+geom_boxplot()
+b7 <- ggplot(train,aes(tempo))+geom_boxplot()
+b8 <- ggplot(train,aes(valence))+geom_boxplot()
+b9 <- ggplot(train,aes(loudness))+geom_boxplot()
+b10 <- ggplot(train,aes(speechiness))+geom_boxplot()
+b11 <- ggplot(train,aes(popularity))+geom_boxplot()
+b12 <- ggplot(train,aes(year))+geom_boxplot()
+grid.arrange(b1,b2,b3,b4,b5,b6,b7,b8,b9,b10,b11,b12,top="Boxplots")
+```
+
+
+# Linear model for response variable energy
+
+## Linear model1
+```{r}
+## Linear model1: energy ~ .
+linear_model1 <- lm(energy ~ . ,data=train[,-c(2,11)])
+summary(linear_model1)
+
+## plots
+par(mfrow=c(2,2),mar=c(4,4,2,1))
+plot(linear_model1)
+
+## shapiro test
+shapiro.test(linear_model1$residuals)
+round(5.251*exp(-10),8)
+```
+
+## Linear model2
+```{r}
+## Linear model2: energy ~ acousticness+danceability+instrumentalness+liveness+loudness....
+linear_model2 <- lm(energy ~ acousticness+danceability+instrumentalness+liveness+loudness+speechiness+tempo+valence+year+duration_min ,data=train[,-c(2,11)])
+summary(linear_model2)
+
+## plots
+par(mfrow=c(2,2),mar=c(4,4,2,1))
+plot(linear_model2)
+
+## shapiro test
+shapiro.test(linear_model2$residuals)
+round(1.051*exp(-9),8)
+```
+
+## Linear model2 Normalization
+```{r}
+energyn <- sqrt(train$energy)
+Nlinear_model2 <- lm(energyn ~ acousticness+danceability+instrumentalness+liveness+loudness+speechiness+tempo+valence+year+duration_min ,data=train)
+summary(Nlinear_model2)
+
+##plots
+par(mfrow=c(2,2),mar=c(4,4,2,1))
+plot(Nlinear_model2)
+
+## shapiro test
+shapiro.test(Nlinear_model2$residuals)
+```
+
+## Linear model
+```{r}
+linear_model <- lm(energy ~ acousticness+loudness+valence ,data=train)
+summary(linear_model)
+
+## plots
+par(mfrow=c(2,2),mar=c(4,4,2,1))
+plot(linear_model)
+
+## normality test
+shapiro.test(linear_model$residuals)
+round(7.246*exp(-8),8)
+```
+
+## Normalizing linear Model
+```{r}
+energyn <- sqrt(train$energy)
+
+## linear model after normalization
+Nlinear_model <- lm(energyn ~ acousticness+loudness+valence ,data=train)
+summary(Nlinear_model)
+
+## plots
+par(mfrow=c(2,2),mar=c(4,4,2,1))
+plot(Nlinear_model)
+  
+## normality test
+shapiro.test(Nlinear_model$residuals)
+round(7.627*exp(-14),8)
+round(6.34*exp(-06),8)
+```
+
+## camparing all Linear models
+```{r}
+summary_stats <- dplyr::tbl_df(bind_rows(glance(linear_model1) %>% dplyr::select(sigma,adj.r.squared,sigma,AIC,BIC),glance(linear_model2) %>% dplyr::select(sigma,adj.r.squared,sigma,AIC,BIC),glance(Nlinear_model2) %>% dplyr::select(sigma,adj.r.squared,sigma,AIC,BIC),glance(linear_model) %>% dplyr::select(sigma,adj.r.squared,sigma,AIC,BIC),glance(Nlinear_model) %>% dplyr::select(sigma,adj.r.squared,sigma,AIC,BIC)))
+
+rownames(summary_stats)<- c("linear_model1","linear_model2","Nlinear_model2","linear_model","Nlinear_model")
+summary_stats <- rownames_to_column(summary_stats)
+summary_stats
+```
+
+## Predictions with Nlinear_model on train data
+```{r}
+trainPred <- predict(Nlinear_model,data = train,interval = "confidence",level = .99)
+trainPred <- trainPred^2
+
+train_df <- data.frame(cbind(actuals=train$energy, predicteds=trainPred))
+head(train_df)
+```
+
+## Predictions with Nlinear_model on test data
+```{r}
+testPred <- predict(Nlinear_model,newdata = test,interval = "confidence",level = .99)
+testPred <- testPred^2
+
+test_df <- data.frame(cbind(actuals=test$energy, predicteds=testPred))
+head(test_df,n=15)
+```
+
+# Logistic regression
+## logistic model1
+```{r}
+logistic_model1 = glm(explicit ~ ., data = train[,-c(2,11)], family = binomial(link = "logit"))
+summary(logistic_model1)
+```
+
+##logistic model
+```{r}
+logistic_model = glm(explicit ~ acousticness+danceability+energy+loudness+popularity+speechiness+valence+year+duration_min, data = train, family = binomial(link = "logit"))
+summary(logistic_model)
+```
+
+## camparing to models
+```{r}
+anova(logistic_model1,logistic_model,test='LR')
+```
+
+## Predictions on train data
+```{r}
+log_pred <-  predict(logistic_model,data = train, type = "response")
+model_pred <- ifelse(log_pred > .1, 1, 0)
+log_mat <- table(Predicted=model_pred,actual=train$explicit)
+confusionMatrix(log_mat, positive="1")
+```
+
+## Predictions on test data
+```{r}
+test_pred <- predict(logistic_model, newdata = test, type = "response")
+test_prediction <- ifelse(test_pred > 0.1, 1, 0)
+test_log_mat <- table(predicted = test_prediction, actual = test$explicit)
+confusionMatrix(test_log_mat, positive = "1")
+```
+
+# Naive Bayes classifier
+## Naive Bayes model
+```{r}
+Naive_bayes <- naiveBayes(explicit ~ acousticness+danceability+energy+loudness+popularity+speechiness+valence+year+duration_min, data = train)
+Naive_bayes
+```
+
+## Predictions on train data
+```{r}
+Nbayes_pred <- predict(Naive_bayes, newdata = train)
+Nbayes_mat <- table(predicted= Nbayes_pred, actual =train$explicit)
+confusionMatrix(Nbayes_mat)
+```
+
+## Predictions on test data
+```{r}
+test_pred <- predict(Naive_bayes, newdata = test)
+test_Nbayes_mat <- table(predicted= test_pred, actual =test$explicit)
+confusionMatrix(test_Nbayes_mat)
+```
+
+# LDA
+Lets classify explicit by linear discrimination analysis.First check for the constant covariance assumption.
+## Test for covarince assumption
+```{r}
+boxM(train[,-c(2,5,7,10,11,18)], train$explicit)
+```
+
+# QDA
+## QDA model
+```{r}
+qda_model <- qda(explicit ~acousticness+danceability+energy+loudness+popularity+speechiness+valence+year+duration_min,train)
+qda_model
+```
+
+## Predictions on train data
+```{r}
+pred <- predict(qda_model, data=train)
+qda_mat <- table(predicted= pred$class, actual= train$explicit)
+confusionMatrix(qda_mat)
+```
+
+## Predictions on test data
+```{r}
+test_pred <-  predict(qda_model, newdata = test)
+test_qda_mat <- table(predicted = test_pred$class,actual = test$explicit)
+confusionMatrix(test_qda_mat)
+```
+
+# Multinomial model
+```{r}
+require(nnet)
+multinom_model <- multinom(explicit ~ acousticness+danceability+energy+loudness+popularity+speechiness+valence+year+duration_min, data = train)
+summary(multinom_model)
+```
+
+## Predictions on train data
+```{r}
+multi_Pred <- predict(multinom_model, newdata = train, "class")
+multi_mat <- table(predicted = multi_Pred,actual = train$explicit)
+confusionMatrix(multi_mat)
+```
+
+## Predictions on test data
+```{r}
+test_Pred <- predict(multinom_model, newdata = test, "class")
+test_multi_mat <- table(predicted = test_Pred,actual = test$explicit)
+confusionMatrix(test_multi_mat)
+```
+
+# kNN
+```{r}
+train_ctrl <-trainControl(method = "cv", number = 8)
+set.seed(10)
+kNN <- train(explicit~ acousticness+danceability+energy+loudness+popularity+speechiness+valence+year+duration_min,data = train, method ="knn",trControl = train_ctrl, preProcess = c("center", "scale"),tuneLength = 8)
+kNN
+```
+
+## plots
+```{r}
+plot(kNN)
+```
+
+## Predictions on train data
+```{r}
+pred_kNN <- predict(kNN,newdata=train)
+kNN_mat <- table(predicted = pred_kNN,actual = train$explicit)
+confusionMatrix(kNN_mat, reference = train$explicit)
+```
+
+## Predictions on test data
+```{r}
+test_pred_kNN <- predict(kNN,newdata=test)
+test_kNN_mat <- table(predicted = test_pred_kNN,actual = test$explicit)
+confusionMatrix(test_kNN_mat, reference = test$explicit)
+```
+
+# Random forest
+```{r}
+forest <- randomForest(explicit~ acousticness+danceability+energy+loudness+popularity+speechiness+valence+year+duration_min,data= train,ntree = 600, mtry = 4, importance = TRUE)
+forest
+```
+
+## Predicting on train set
+```{r}
+predTrain <- predict(forest, train, type = "class")
+forest_mat<-table(predTrain, train$explicit)
+confusionMatrix(forest_mat)
+```
+
+## Predicting on test set
+```{r}
+predTest <- predict(forest, test, type = "class")
+test_forest_mat <- table(predTest, test$explicit)
+confusionMatrix(test_forest_mat)
+```
+
+## comparisons
+```{r}
+print("Confusion MatriX for train data ")
+print("Logistic Quadratic Naive_Bayes")
+cbind(log_mat,qda_mat,Nbayes_mat)
+print("K-NN Multinominal Random_forest")
+cbind(kNN_mat,multi_mat,forest_mat)
+
+print("Confusion MatriX for test data ")
+print("Logistic Quadratic Naive_Bayes")
+cbind(test_log_mat,test_qda_mat,test_Nbayes_mat)
+print("K-NN Multinominal Random_forest")
+cbind(test_kNN_mat,test_multi_mat,test_forest_mat)
+```
+
+# PCA
+## coreelation matrix
+```{r}
+cor.matrix <-  cor(train[,-c(2,5,7,10,11)])
+cor.matrix
+```
+
+## Eigen values and vecgtors
+```{r}
+eig <- eigen(cor.matrix)
+eigen_values <- eig$values
+eigen_vectors <- eig$vectors
+eigen_values
+eigen_vectors
+```
+
+## Principal component analysis
+```{r}
+pc <- prcomp(train[,-c(2,5,7,10,11)],scale. = T)
+summary(pc)
+```
+
+## scree plot
+```{r}
+plot(eigen_values, xlab = 'Eigenvalue Number', ylab = 'Eigenvalue Size', main = 'Scree Graph')
+lines(eigen_values)
+```
+
+# K-means clustering
+```{r}
+clustering <- scale(data[,-c(2,5,7,10,11)])
+k2 <- kmeans(clustering, centers = 2,nstart = 30)
+k3 <- kmeans(clustering, centers = 3,nstart = 30)
+k4 <- kmeans(clustering, centers = 4,nstart = 30)
+k5 <- kmeans(clustering, centers = 5,nstart = 30)
+k6 <- kmeans(clustering, centers = 6,nstart = 30)
+
+## plots of clustering
+p1 <- fviz_cluster(k2, geom = "point",  data = clustering) + ggtitle("k = 2")
+p2 <- fviz_cluster(k3, geom = "point",  data = clustering) + ggtitle("k = 3")
+p3 <- fviz_cluster(k4, geom = "point",  data = clustering) + ggtitle("k = 4")
+p4 <- fviz_cluster(k5, geom = "point",  data = clustering) + ggtitle("k = 5")
+p5 <- fviz_cluster(k6, geom = "point",  data = clustering) + ggtitle("k = 6")
+
+grid.arrange(p1, p2, p3, p4,p5, nrow = 2)
+```
+
+## Determining and Visualizing the Optimal Number of Clusters
+```{r}
+set.seed(8)
+fviz_nbclust(clustering, kmeans, method = "wss")
+```
+
+
+
