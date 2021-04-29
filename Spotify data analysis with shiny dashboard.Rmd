@@ -105,6 +105,33 @@ plot<- ggplot(data = trend_change, aes(x = year, y = Average)) +
 return(plot)
 }
 ```
+# PCA
+## coreelation matrix
+```{r}
+cor.matrix <-  cor(train[,-c(2,5,7,10,11)])
+cor.matrix
+```
+
+## Eigen values and vecgtors
+```{r}
+eig <- eigen(cor.matrix)
+eigen_values <- eig$values
+eigen_vectors <- eig$vectors
+eigen_values
+eigen_vectors
+```
+
+## Principal component analysis
+```{r}
+pc <- prcomp(train[,-c(2,5,7,10,11)],scale. = T)
+summary(pc)
+```
+
+## scree plot
+```{r}
+plot(eigen_values, xlab = 'Eigenvalue Number', ylab = 'Eigenvalue Size', main = 'Scree Graph')
+lines(eigen_values)
+```
 
 # linear model
 ```{r}
@@ -223,18 +250,6 @@ forest
 predTest <- predict(forest, test, type = "class")
 test_forest_mat <- table(predTest, test$explicit)
 confusionMatrix(test_forest_mat)
-```
-
-## Principal component analysis
-```{r}
-pc <- prcomp(train[,-c(2,5,7,10,11)],scale. = T)
-summary(pc)
-```
-
-## scree plot
-```{r}
-plot(eigen_values, xlab = 'Eigenvalue Number', ylab = 'Eigenvalue Size', main = 'Scree Graph')
-lines(eigen_values)
 ```
 
 # shiny code
