@@ -34,7 +34,6 @@ library(randomForest)
 
 # Data setup
 ```{r}
-setwd("C:/Users/gunta/Desktop/studies/SEM2/MDSC-206/Mini project1")
 data_excel <- read.csv("Spotify_data.csv")
 set.seed(12)
 data <- data_excel[sample(nrow(data_excel), 7000),]
