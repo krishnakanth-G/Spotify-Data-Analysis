@@ -1,4 +1,4 @@
-# Spotify_Data_Analysis
+# Spotify Data Analysis
 EDA and Modeling
 
 1) spotify data analysis.pdf contains the inferences that we made from the output of Spotify data analysis.Rmd file
